@@ -43,6 +43,36 @@ def match_xfeat_star(self, mkpts0, feats0, sc0, mkpts1, feats1, sc1):
 
     return match_mkpts, batch_index
 
+def export_match_lighterglue(self, kpt0, dscr0, size0, kpt1, dscr1, size1):
+		"""
+			Match XFeat sparse features with LightGlue (smaller version) -- currently does NOT support batched inference because of padding, but its possible to implement easily.
+			input:
+				d0, d1: Dict('keypoints', 'scores, 'descriptors', 'image_size (Width, Height)')
+			output:
+				mkpts_0, mkpts_1 -> np.ndarray (N,2) xy coordinate matches from image1 to image2
+				
+		"""
+		if not self.kornia_available:
+			raise RuntimeError('We rely on kornia for LightGlue. Install with: pip install kornia')
+		elif self.lighterglue is None:
+			from modules.lighterglue import LighterGlue
+			self.lighterglue = LighterGlue()
+
+		data = {
+				'keypoints0': kpt0[None, ...],
+				'keypoints1': kpt1[None, ...],
+				'descriptors0': dscr0[None, ...],
+				'descriptors1': dscr1[None, ...],
+				'image_size0': torch.tensor(size0).to(self.dev)[None, ...],
+				'image_size1': torch.tensor(size1).to(self.dev)[None, ...]
+		}
+
+		#Dict -> log_assignment: [B x M+1 x N+1] matches0: [B x M] matching_scores0: [B x M] matches1: [B x N] matching_scores1: [B x N] matches: List[[Si x 2]], scores: List[[Si]]
+		out = self.lighterglue(data)
+
+		idxs = out['matches'][0]
+
+		return kpt0[idxs[:, 0]].cpu().numpy(), kpt1[idxs[:, 1]].cpu().numpy()
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Export XFeat/Matching model to ONNX.")
@@ -57,14 +87,24 @@ def parse_args():
         help="Export the XFeat detectAndCompute model.",
     )
     parser.add_argument(
+        "--xfeat_only_model_match",
+        action="store_true",
+        help="Export only the match model.",
+    )
+    parser.add_argument(
+        "--xfeat_only_model_match_lighterglue",
+        action="store_true",
+        help="Export only the model match lighterglue.",
+    )
+    parser.add_argument(
         "--xfeat_only_model_dualscale",
         action="store_true",
         help="Export only the XFeat dualscale model.",
     )
     parser.add_argument(
-        "--xfeat_only_matching",
+        "--xfeat_only_matching_star",
         action="store_true",
-        help="Export only the matching.",
+        help="Export only the matching star.",
     )
     parser.add_argument(
         "--split_instance_norm",
@@ -129,6 +169,8 @@ if __name__ == "__main__":
 
     if args.split_instance_norm:
         xfeat.net.norm = CustomInstanceNorm()
+    # else :
+    #     xfeat.net.norm = torch.nn.InstanceNorm2d(1, track_running_stats=True)
 
     xfeat = xfeat.cpu().eval()
     xfeat.dev = "cpu"
@@ -155,10 +197,11 @@ if __name__ == "__main__":
         batch_size = 1
         xfeat.forward = xfeat.detectAndCompute
         x1 = torch.randn(batch_size, 3, args.height, args.width, dtype=torch.float32, device='cpu')
+        x2 = torch.tensor(args.top_k, dtype=torch.int64, device='cpu')
         dynamic_axes = {"images": {2: "height", 3: "width"}}
         torch.onnx.export(
             xfeat,
-            (x1, args.top_k),
+            (x1, x2),
             args.export_path,
             verbose=False,
             opset_version=args.opset,
@@ -166,6 +209,45 @@ if __name__ == "__main__":
             input_names=["images", "top_k"],
             output_names=["keypoints", "scores", "descriptors"],
             dynamic_axes=dynamic_axes if args.dynamic else None,
+        )
+    elif args.xfeat_only_model_match:
+        xfeat.forward = xfeat.match
+        batch_size = 1
+        feats1 = torch.randn(args.top_k, 64, dtype=torch.float32, device='cpu')
+        feats2 = torch.randn(args.top_k, 64, dtype=torch.float32, device='cpu')
+        threshold = torch.tensor(0.82, dtype=torch.float32, device='cpu')
+        dynamic_axes = {"feats1": {0: "num_descriptors"}, "feats2": {0: "num_descriptors"}}
+        torch.onnx.export(
+            xfeat,
+            (feats1, feats2, threshold),
+            args.export_path,
+            verbose=False,
+            opset_version=args.opset,
+            do_constant_folding=True,
+            input_names=["feats1", "feats2", "threshold"],
+            output_names=["indexes1", "indexes2"],
+            dynamic_axes=dynamic_axes
+        )
+    elif args.xfeat_only_model_match_lighterglue:
+        xfeat.forward = types.MethodType(export_match_lighterglue, xfeat)
+        batch_size = 1
+        kpt0 = torch.randn(args.top_k, 2, dtype=torch.float32, device='cpu')
+        dscr0 = torch.randn(args.top_k, 64, dtype=torch.float32, device='cpu')
+        size0 = torch.tensor([args.height, args.width], dtype=torch.int64, device='cpu')
+        kpt1 = torch.randn(args.top_k, 2, dtype=torch.float32, device='cpu')
+        dscr1 = torch.randn(args.top_k, 64, dtype=torch.float32, device='cpu')
+        size1 = torch.tensor([args.height, args.width], dtype=torch.int64, device='cpu')
+        dynamic_axes = {"feats1": {0: "num_descriptors"}, "feats2": {0: "num_descriptors"}}
+        torch.onnx.export(
+            xfeat,
+            (kpt0, dscr0, size0, kpt1, dscr1, size1),
+            args.export_path,
+            verbose=False,
+            opset_version=args.opset,
+            do_constant_folding=True,
+            input_names=["kpt0", "dscr0", "size0", "kpt1", "dscr1", "size1"],
+            output_names=["kpt0", "kpt1"],
+            # dynamic_axes=dynamic_axes
         )
     elif args.xfeat_only_model_dualscale:
         xfeat.forward = xfeat.detectAndComputeDense
@@ -181,7 +263,7 @@ if __name__ == "__main__":
             output_names=["mkpts", "feats", "sc"],
             dynamic_axes=dynamic_axes if args.dynamic else None,
         )
-    elif args.xfeat_only_matching:
+    elif args.xfeat_only_matching_star:
         xfeat.forward = types.MethodType(match_xfeat_star, xfeat)
 
         mkpts0 = torch.randn(batch_size, args.top_k, 2, dtype=torch.float32, device='cpu')

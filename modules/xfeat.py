@@ -346,9 +346,12 @@ class XFeat(nn.Module):
 		_, match12 = cossim.max(dim=1)
 		_, match21 = cossim_t.max(dim=1)
 
-		idx0 = torch.arange(len(match12), device=match12.device)
+		if torch.onnx.is_in_onnx_export():
+			idx0 = torch.arange(feats1.shape[0], device=match12.device)
+		else:
+			idx0 = torch.arange(len(match12), device=match12.device)
 		mutual = match21[match12] == idx0
-
+			
 		if min_cossim > 0:
 			cossim, _ = cossim.max(dim=1)
 			good = cossim > min_cossim
