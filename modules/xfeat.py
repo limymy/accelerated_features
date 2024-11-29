@@ -140,13 +140,14 @@ class XFeat(nn.Module):
 
 
 	@torch.inference_mode()
-	def match_lighterglue(self, d0, d1):
+	def match_lighterglue(self, d0, d1, min_conf = 0.1):
 		"""
 			Match XFeat sparse features with LightGlue (smaller version) -- currently does NOT support batched inference because of padding, but its possible to implement easily.
 			input:
 				d0, d1: Dict('keypoints', 'scores, 'descriptors', 'image_size (Width, Height)')
 			output:
 				mkpts_0, mkpts_1 -> np.ndarray (N,2) xy coordinate matches from image1 to image2
+                                idx              -> np.ndarray (N,2) the indices of the matching features
 				
 		"""
 		if not self.kornia_available:
@@ -165,11 +166,11 @@ class XFeat(nn.Module):
 		}
 
 		#Dict -> log_assignment: [B x M+1 x N+1] matches0: [B x M] matching_scores0: [B x M] matches1: [B x N] matching_scores1: [B x N] matches: List[[Si x 2]], scores: List[[Si]]
-		out = self.lighterglue(data)
+		out = self.lighterglue(data, min_conf = min_conf)
 
 		idxs = out['matches'][0]
 
-		return d0['keypoints'][idxs[:, 0]].cpu().numpy(), d1['keypoints'][idxs[:, 1]].cpu().numpy()
+		return d0['keypoints'][idxs[:, 0]].cpu().numpy(), d1['keypoints'][idxs[:, 1]].cpu().numpy(), out['matches'][0].cpu().numpy()
 
 
 	@torch.inference_mode()
@@ -234,8 +235,18 @@ class XFeat(nn.Module):
 
 	def preprocess_tensor(self, x):
 		""" Guarantee that image is divisible by 32 to avoid aliasing artifacts. """
-		if isinstance(x, np.ndarray) and len(x.shape) == 3:
-			x = torch.tensor(x).permute(2,0,1)[None]
+		if isinstance(x, np.ndarray):
+			if len(x.shape) == 3:
+				x = torch.tensor(x).permute(2,0,1)[None]
+			elif len(x.shape) == 2:
+				x = torch.tensor(x[..., None]).permute(2,0,1)[None]
+			else:
+				raise RuntimeError('For numpy arrays, only (H,W) or (H,W,C) format is supported.')
+		
+		
+		if len(x.shape) != 4:
+			raise RuntimeError('Input tensor needs to be in (B,C,H,W) format')
+	
 		x = x.to(self.dev).float()
 
 		H, W = x.shape[-2:]
