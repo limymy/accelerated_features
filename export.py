@@ -77,6 +77,12 @@ def export_match_lighterglue(self, kpt0, dscr0, size0, kpt1, dscr1, size1):
 def parse_args():
   parser = argparse.ArgumentParser(description="Export XFeat/Matching model to ONNX.")
   parser.add_argument(
+    "--weights",
+    type=str,
+    default=None,
+    help="Path to the weights file.",
+  )
+  parser.add_argument(
     "--xfeat_raw",
     nargs='?',
     type=str,
@@ -186,7 +192,7 @@ if __name__ == "__main__":
   x1 = torch.randn(batch_size, 3, args.height, args.width, dtype=torch.float32, device='cpu')
   x2 = torch.randn(batch_size, 3, args.height, args.width, dtype=torch.float32, device='cpu')
 
-  xfeat = XFeat()
+  xfeat = XFeat(weights=args.weights) if args.weights else XFeat()
   xfeat.top_k = args.top_k
 
   if args.split_instance_norm:

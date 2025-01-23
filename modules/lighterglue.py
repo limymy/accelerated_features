@@ -26,14 +26,14 @@ class LighterGlue(nn.Module):
     "weights": None,
     }
 
-    def __init__(self, weights = os.path.abspath(os.path.dirname(__file__)) + '/../weights/xfeat-lighterglue.pt'):
+    def __init__(self, weights = os.path.abspath(os.path.dirname(__file__)) + '/../weights/xfeat-lighterglue.pt', device = None):
         super().__init__()
         LightGlue.default_conf = self.default_conf_xfeat
         self.net = LightGlue(None)
-        self.dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.dev = torch.device(device) if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         if os.path.exists(weights):
-            state_dict = torch.load(weights, map_location=self.dev)
+            state_dict = torch.load(weights, map_location=self.dev, weights_only=True)
         else:
             state_dict = torch.hub.load_state_dict_from_url("https://github.com/verlab/accelerated_features/raw/main/weights/xfeat-lighterglue.pt")
 

@@ -20,9 +20,9 @@ class XFeat(nn.Module):
 		It supports inference for both sparse and semi-dense feature extraction & matching.
 	"""
 
-	def __init__(self, weights = os.path.abspath(os.path.dirname(__file__)) + '/../weights/xfeat.pt', top_k = 4096, detection_threshold=0.05):
+	def __init__(self, weights = os.path.abspath(os.path.dirname(__file__)) + '/../weights/xfeat.pt', top_k = 4096, detection_threshold=0.05, device = None):
 		super().__init__()
-		self.dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+		self.dev = torch.device(device) if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 		self.net = XFeatModel().to(self.dev).eval()
 		self.top_k = top_k
 		self.detection_threshold = detection_threshold
@@ -30,7 +30,7 @@ class XFeat(nn.Module):
 		if weights is not None:
 			if isinstance(weights, str):
 				print('loading weights from: ' + weights)
-				self.net.load_state_dict(torch.load(weights, map_location=self.dev))
+				self.net.load_state_dict(torch.load(weights, map_location=self.dev, weights_only=True))
 			else:
 				self.net.load_state_dict(weights)
 
@@ -80,6 +80,8 @@ class XFeat(nn.Module):
 		scores[torch.all(mkpts == 0, dim=-1)] = -1
 
 		#Select top-k features
+		# print(f"scores size: {scores.size()}, top_k: {top_k}")
+		top_k = torch.min(torch.tensor(top_k), torch.tensor(scores.shape[1]))
 		idxs = torch.topk(scores, top_k, dim=-1)[1]
 		mkpts_x  = torch.gather(mkpts[...,0], -1, idxs)
 		mkpts_y  = torch.gather(mkpts[...,1], -1, idxs)
@@ -154,7 +156,7 @@ class XFeat(nn.Module):
 			raise RuntimeError('We rely on kornia for LightGlue. Install with: pip install kornia')
 		elif self.lighterglue is None:
 			from modules.lighterglue import LighterGlue
-			self.lighterglue = LighterGlue()
+			self.lighterglue = LighterGlue(device=self.dev)
 
 		data = {
 				'keypoints0': d0['keypoints'][None, ...],
@@ -232,6 +234,21 @@ class XFeat(nn.Module):
 			matches.append(match_mkpts[batch_index == b, :])
 
 		return matches if B > 1 else (matches[0][:, :2].cpu().numpy(), matches[0][:, 2:].cpu().numpy())
+
+	@torch.inference_mode()
+	def match_lighterglue_full(self, img1, img2, top_k = None):
+			if top_k is None:
+				top_k = self.top_k
+			# Inference with batch = 1
+			output0 = self.detectAndCompute(img1, top_k)[0]
+			output1 = self.detectAndCompute(img2, top_k)[0]
+
+			#Update with image resolution (required)
+			output0.update({'image_size': (img1.shape[1], img1.shape[0])})
+			output1.update({'image_size': (img2.shape[1], img2.shape[0])})
+
+			mkpts_0, mkpts_1, _ = self.match_lighterglue(output0, output1)
+			return mkpts_0, mkpts_1
 
 	def preprocess_tensor(self, x):
 		""" Guarantee that image is divisible by 32 to avoid aliasing artifacts. """
@@ -395,7 +412,7 @@ class XFeat(nn.Module):
 		M1 = M1.permute(0,2,3,1).flatten(1, 2) # B, H*W, C
 		H1 = H1.permute(0,2,3,1).flatten(1) # B, H*W
 
-		_, top_k = torch.topk(H1, k = torch.min(H1.shape[1], torch.tensor(top_k)), dim=-1)
+		_, top_k = torch.topk(H1, k = torch.min(torch.tensor(H1.shape[1]), torch.tensor(top_k)), dim=-1)
 
 		feats = torch.gather( M1, 1, top_k[...,None].expand(-1, -1, 64))
 		mkpts = torch.gather(xy1, 1, top_k[...,None].expand(-1, -1, 2))

@@ -1,3 +1,15 @@
+### 训练
+```
+python -m modules.training.train_diy --training_type xfeat_default --megadepth_root_path /home/datashare/accelerated_features/megadepth  --synthetic_root_path /home/datashare/accelerated_features/coco_20k --ckpt_save_path ckpts/ --batch_size 10 --device_num 
+```
+
+### 评估
+```
+python3 -m modules.eval.megadepth1500 --dataset-dir dataset/Mega1500/ --matcher xfeat --ransac-thr 2.5
+```
+
+---
+
 ## XFeat: Accelerated Features for Lightweight Image Matching
 [Guilherme Potje](https://guipotje.github.io/) · [Felipe Cadar](https://eucadar.com/) · [Andre Araujo](https://andrefaraujo.github.io/) · [Renato Martins](https://renatojmsdh.github.io/) · [Erickson R. Nascimento](https://homepages.dcc.ufmg.br/~erickson/)
 
