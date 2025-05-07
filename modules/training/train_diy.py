@@ -36,7 +36,11 @@ def parse_arguments():
                         help='If set, perform a dry run training with a mini-batch for sanity check.')
     parser.add_argument('--save_ckpt_every', type=int, default=500,
                         help='Save checkpoints every N steps. Default is 500.')
-
+    parser.add_argument('--name', type=str, default=None, required=True,
+                        help='Name of the experiment.')
+    parser.add_argument('--xfeat_model', type=str, default=None,
+                        # choices=['v2', 'v3', 'v4'],
+                        help='XFeat model version. Default is v1.')
     args = parser.parse_args()
 
     os.environ['CUDA_VISIBLE_DEVICES'] = args.device_num
@@ -77,10 +81,10 @@ class Trainer():
                        model_name = 'xfeat_default',
                        batch_size = 10, n_steps = 160_000, lr= 3e-4, gamma_steplr=0.5, 
                        training_res = (800, 608), device_num="0", dry_run = False,
-                       save_ckpt_every = 500):
+                       save_ckpt_every = 500, xfeat_model = 'v1'):
 
         self.dev = torch.device ('cuda' if torch.cuda.is_available() else 'cpu')
-        self.net = XFeatModel().to(self.dev)
+        self.net = XFeatModel(xfeat_model).to(self.dev)
 
         #Setup optimizer 
         self.batch_size = batch_size
@@ -143,12 +147,12 @@ class Trainer():
         ##################### MEGADEPTH INIT END #######################
 
         os.makedirs(ckpt_save_path, exist_ok=True)
-        os.makedirs(ckpt_save_path + '/logdir', exist_ok=True)
+        os.makedirs(ckpt_save_path + args.name, exist_ok=True)
 
         self.dry_run = dry_run
         self.save_ckpt_every = save_ckpt_every
-        self.ckpt_save_path = ckpt_save_path
-        self.writer = SummaryWriter(ckpt_save_path + f'/logdir/{model_name}_' + time.strftime("%Y_%m_%d-%H_%M_%S"))
+        self.ckpt_save_path = ckpt_save_path + f'/{args.name}'
+        self.writer = SummaryWriter(ckpt_save_path + f'/{args.name}')
         self.model_name = model_name
 
 
@@ -317,17 +321,23 @@ class Trainer():
                                                                         loss.item(), acc_coarse_0, acc_coarse, acc_coords, loss_coarse, loss_coord, loss_l1, nb_coarse, loss_kp_pos, acc_pos) )
                 pbar.update(1)
 
-                # Log metrics
-                self.writer.add_scalar('Loss/total', loss.item(), i)
-                self.writer.add_scalar('Accuracy/coarse_synth', acc_coarse_0, i)
-                self.writer.add_scalar('Accuracy/coarse_mdepth', acc_coarse, i)
-                self.writer.add_scalar('Accuracy/fine_mdepth', acc_coords, i)
-                self.writer.add_scalar('Accuracy/kp_position', acc_pos, i)
-                self.writer.add_scalar('Loss/coarse', loss_coarse, i)
-                self.writer.add_scalar('Loss/fine', loss_coord, i)
-                self.writer.add_scalar('Loss/reliability', loss_l1, i)
-                self.writer.add_scalar('Loss/keypoint_pos', loss_kp_pos, i)
-                self.writer.add_scalar('Count/matches_coarse', nb_coarse, i)
+                # 每100次迭代记录一次数据到TensorBoard
+                if i % 100 == 0:
+                    # 获取当前学习率
+                    current_lr = self.opt.param_groups[0]['lr']
+                    # Log metrics
+                    self.writer.add_scalar('Loss/total', loss.item(), i)
+                    self.writer.add_scalar('Accuracy/coarse_synth', acc_coarse_0, i)
+                    self.writer.add_scalar('Accuracy/coarse_mdepth', acc_coarse, i)
+                    self.writer.add_scalar('Accuracy/fine_mdepth', acc_coords, i)
+                    self.writer.add_scalar('Accuracy/kp_position', acc_pos, i)
+                    self.writer.add_scalar('Loss/coarse', loss_coarse, i)
+                    self.writer.add_scalar('Loss/fine', loss_coord, i)
+                    self.writer.add_scalar('Loss/reliability', loss_l1, i)
+                    self.writer.add_scalar('Loss/keypoint_pos', loss_kp_pos, i)
+                    self.writer.add_scalar('Count/matches_coarse', nb_coarse, i)
+                    # 添加学习率记录
+                    self.writer.add_scalar('Training/learning_rate', current_lr, i)
 
 
 
@@ -345,7 +355,8 @@ if __name__ == '__main__':
         training_res=args.training_res,
         device_num=args.device_num,
         dry_run=args.dry_run,
-        save_ckpt_every=args.save_ckpt_every
+        save_ckpt_every=args.save_ckpt_every,
+        xfeat_model=args.xfeat_model
     )
 
     #The most fun part

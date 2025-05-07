@@ -20,10 +20,15 @@ class XFeat(nn.Module):
 		It supports inference for both sparse and semi-dense feature extraction & matching.
 	"""
 
-	def __init__(self, weights = os.path.abspath(os.path.dirname(__file__)) + '/../weights/xfeat.pt', top_k = 4096, detection_threshold=0.05, device = None):
+	def __init__(self,
+							 version = None,
+							 weights = os.path.abspath(os.path.dirname(__file__)) + '/../weights/xfeat.pt',
+							 lg_weights = None,
+							 top_k = 4096, detection_threshold=0.05,
+							 device = None):
 		super().__init__()
 		self.dev = torch.device(device) if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-		self.net = XFeatModel().to(self.dev).eval()
+		self.net = XFeatModel(version).to(self.dev).eval()
 		self.top_k = top_k
 		self.detection_threshold = detection_threshold
 
@@ -39,6 +44,7 @@ class XFeat(nn.Module):
 		#Try to import LightGlue from Kornia
 		self.kornia_available = False
 		self.lighterglue = None
+		self.lg_weights = lg_weights
 		try:
 			import kornia
 			self.kornia_available=True
@@ -81,11 +87,13 @@ class XFeat(nn.Module):
 
 		#Select top-k features
 		# print(f"scores size: {scores.size()}, top_k: {top_k}")
+		# top_k = torch.topk(torch.tensor([top_k, scores.shape[1]]), k=1).values[0]
 		top_k = torch.min(torch.tensor(top_k), torch.tensor(scores.shape[1]))
 		idxs = torch.topk(scores, top_k, dim=-1)[1]
-		mkpts_x  = torch.gather(mkpts[...,0], -1, idxs)
-		mkpts_y  = torch.gather(mkpts[...,1], -1, idxs)
-		mkpts = torch.cat([mkpts_x[...,None], mkpts_y[...,None]], dim=-1)
+		mkpts = torch.gather(mkpts, -2, idxs.unsqueeze(-1).expand(-1, -1, 2))
+		# mkpts_x  = torch.gather(mkpts[...,0], -1, idxs)
+		# mkpts_y  = torch.gather(mkpts[...,1], -1, idxs)
+		# mkpts = torch.cat([mkpts_x[...,None], mkpts_y[...,None]], dim=-1)
 		scores = torch.gather(scores, -1, idxs)
 
 		#Interpolate descriptors at kpts positions
@@ -156,7 +164,7 @@ class XFeat(nn.Module):
 			raise RuntimeError('We rely on kornia for LightGlue. Install with: pip install kornia')
 		elif self.lighterglue is None:
 			from modules.lighterglue import LighterGlue
-			self.lighterglue = LighterGlue(device=self.dev)
+			self.lighterglue = LighterGlue(device=self.dev) if self.lg_weights is None else LighterGlue(weights=self.lg_weights, device=self.dev)
 
 		data = {
 				'keypoints0': d0['keypoints'][None, ...],

@@ -248,6 +248,10 @@ def parse_args():
                         help="RANSAC threshold value in pixels (default: 2.5)")
     parser.add_argument('--weights', type=str, default=None,
                         help="Path to the weights file for the model")
+    parser.add_argument('--lg_weights', type=str, default=None,
+                        help="Path to the weights file for the lighterglue model")
+    parser.add_argument('--version', type=str, default=None,
+                        help="Model version to use")
     return parser.parse_args()
 
 
@@ -264,24 +268,30 @@ if __name__ == '__main__':
         print("Running benchmark for XFeat..")
         from modules.xfeat import XFeat
         if args.weights is None:
-          xfeat = XFeat()
+          xfeat = XFeat(version=args.version)
         else:
-          xfeat = XFeat(weights=args.weights)
+          xfeat = XFeat(weights=args.weights,
+                        version=args.version)
         run_pose_benchmark(matcher_fn = xfeat.match_xfeat, loader = loader, ransac_thr = args.ransac_thr)
 
     elif args.matcher == 'xfeat-star':
         from modules.xfeat import XFeat
         print("Running benchmark for XFeat*..")
-        xfeat = XFeat(top_k = 10_000)
+        if args.weights is None:
+          xfeat = XFeat(version=args.version, top_k = 10_000)
+        else:
+          xfeat = XFeat(weights=args.weights,
+                        version=args.version,
+                        top_k = 10_000)
         run_pose_benchmark(matcher_fn = xfeat.match_xfeat_star, loader = loader, ransac_thr = args.ransac_thr)
 
     elif args.matcher == 'xfeat-lg':
         print("Running benchmark for XFeat-lighterglue..")
         from modules.xfeat import XFeat
         if args.weights is None:
-          xfeat = XFeat()
+          xfeat = XFeat(lg_weights=args.lg_weights)
         else:
-          xfeat = XFeat(weights=args.weights)
+          xfeat = XFeat(weights=args.weights, lg_weights=args.lg_weights)
         run_pose_benchmark(matcher_fn = xfeat.match_lighterglue_full, loader = loader, ransac_thr = args.ransac_thr)
 
     elif args.matcher == 'alike':

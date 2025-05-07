@@ -310,21 +310,29 @@ class Scannet1500:
 
         return aucs_by_thresh
 
-def get_xfeat(weights:str|None=None):
+def get_xfeat(weights:str|None=None, version:str|None=None):
     from modules.xfeat import XFeat
     if weights is not None:
-      xfeat = XFeat(weights=weights)
+      xfeat = XFeat(weights=weights, version=version)
     else:
-      xfeat = XFeat()
+      xfeat = XFeat(version=version)
     return xfeat.match_xfeat
 
-def get_xfeat_star(weights:str|None=None):
+def get_xfeat_star(weights:str|None=None, version:str|None=None):
     from modules.xfeat import XFeat
     if weights is not None:
-      xfeat = XFeat(weights=weights)
+      xfeat = XFeat(weights=weights, version=version)
     else:
-      xfeat = XFeat(top_k=10_000)
+      xfeat = XFeat(top_k=10_000, version=version)
     return xfeat.match_xfeat_star
+
+def get_xfeat_lg(weights:str|None=None, lg_weights:str|None=None):
+    from modules.xfeat import XFeat
+    if weights is not None:
+      xfeat = XFeat(weights=weights, lg_weights=lg_weights)
+    else:
+      xfeat = XFeat(lg_weights=lg_weights)
+    return xfeat.match_lighterglue_full
 
 def get_alike():
     from third_party import alike_wrapper as alike
@@ -341,12 +349,15 @@ def parse():
     parser.add_argument("--max_pairs", type=int, default=-1, help="Maximum number of pairs to run the benchmark on")
     parser.add_argument("--force", action='store_true', help="Force running the benchmark again")
     parser.add_argument("--pose_estimator", type=str, default='poselib', help="Which pose estimator to use: poselib, opencv", choices=['poselib', 'opencv'])
-    
+    parser.add_argument("--matcher", type=str, default='xfeat', help="Which matcher to use: xfeat, xfeat_star, xfeat_lg, alike", choices=['xfeat', 'xfeat_star', 'xfeat_lg', 'alike'])
+
     parser.add_argument("--show", action='store_true', help="Show the matches")
     parser.add_argument("--accuracy", action='store_true', help="Show the accuracy instead of AUC")
     parser.add_argument("--filter", type=str, nargs='+', help="Filter the results by the given names")
 
+    parser.add_argument("--version", type=str, choices=['v1', 'v2', 'v3'], default=None, help="Model version to use")
     parser.add_argument("--weights", type=str, default=None, help="Path to the weights file for the model")
+    parser.add_argument("--lg_weights", type=str, default=None, help="Path to the weights file for the lighterglue model")
     
     return parser.parse_args()
 
@@ -366,9 +377,10 @@ if __name__ == "__main__":
         })
 
         functions = {
-            'xfeat': get_xfeat(args.weights),
-            'xfeat_star': get_xfeat_star(args.weights),
-            'alike': get_alike(),
+            'xfeat': get_xfeat(args.weights, args.version),
+            'xfeat_star': get_xfeat_star(args.weights, args.version),
+            # 'xfeat_lg': get_xfeat_lg(args.weights, args.lg_weights),
+            # 'alike': get_alike(),
         }
 
         # save all results to a file
